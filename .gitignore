@@ -1,0 +1,16 @@
+# Java / Gradle
+java-matcher/.gradle/
+java-matcher/build/
+java-matcher/bin/
+*.class
+
+# Go
+go-client/gen/biometricpb/*.pb.go
+go-client/gen/biometricpb/*_grpc.pb.go
+go-client/biometric-cli
+
+# local test artifacts, never commit real scan/template data
+testdata/*.iso
+testdata/*.bin
+
+.DS_Store

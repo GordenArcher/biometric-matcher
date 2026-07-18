@@ -1,0 +1,100 @@
+syntax = "proto3";
+
+package biometric.v1;
+
+option go_package = "github.com/GordenArcher/biometric-matcher/gen/biometricpb";
+option java_package = "com.gordenarcher.biometric.grpc";
+option java_multiple_files = true;
+
+// Matcher is deliberately stateless. It never touches Postgres and never
+// sees a name, DOB, or any biographic field, only raw scan bytes and
+// templates. That keeps it a pure compute service Go can horizontally
+// scale or swap out without touching the persistence layer.
+service Matcher {
+  // Turns a raw fingerprint scan into a SourceAFIS template. Go stores
+  // the returned template (encrypted) against a person's record, it is
+  // never persisted here.
+  rpc Enroll(EnrollRequest) returns (EnrollResponse);
+
+  // 1:1 check, "is this scan the same person as this stored template".
+  // Used for the actual verification flow, e.g. confirming identity
+  // before printing a corrected card.
+  rpc Verify(VerifyRequest) returns (VerifyResponse);
+
+  // 1:N check, "does this scan match anyone in this batch of templates".
+  // Go is responsible for deciding which templates go in the batch
+  // (e.g. paginating the whole register), the matcher just scores
+  // against whatever it is given.
+  rpc Identify(IdentifyRequest) returns (IdentifyResponse);
+}
+
+message EnrollRequest {
+  // Raw scan bytes straight off the sensor SDK, not a template.
+  // Format is fixed to ISO 19794-2 so either side can be swapped
+  // for a different vendor SDK later without changing this contract.
+  bytes scan_data = 1;
+  ScanFormat format = 2;
+}
+
+message EnrollResponse {
+  // Opaque SourceAFIS template bytes. Go encrypts this before it ever
+  // touches the database, the matcher does not know or care about that.
+  bytes template = 1;
+
+  // SourceAFIS reports this so Go can reject unusably low quality
+  // scans at enrollment time instead of discovering it later during
+  // a failed verify.
+  float quality_score = 2;
+}
+
+message VerifyRequest {
+  bytes probe_scan = 1;
+  ScanFormat format = 2;
+
+  // The stored template Go pulled from Postgres for the claimed identity.
+  // Decryption happens on the Go side before this is sent.
+  bytes candidate_template = 3;
+}
+
+message VerifyResponse {
+  bool match = 1;
+
+  // Raw SourceAFIS score, exposed rather than collapsed into match alone
+  // so Go can tune its own accept threshold per use case (e.g. stricter
+  // for a card reprint than for a low stakes check) without redeploying
+  // the matcher.
+  double score = 2;
+}
+
+message IdentifyRequest {
+  bytes probe_scan = 1;
+  ScanFormat format = 2;
+
+  // Batch of candidate templates to search against. Go owns pagination
+  // over the register, the matcher has no concept of "the whole database".
+  repeated TemplateCandidate candidates = 3;
+}
+
+message TemplateCandidate {
+  // Go's internal record ID, echoed back unchanged in the response so
+  // Go can map a hit straight back to a person without a second lookup.
+  string candidate_id = 1;
+  bytes template = 2;
+}
+
+message IdentifyResponse {
+  // Sorted highest score first. Empty if nothing cleared the matcher's
+  // internal threshold, "no match" is a valid, expected result here.
+  repeated IdentifyMatch matches = 1;
+}
+
+message IdentifyMatch {
+  string candidate_id = 1;
+  double score = 2;
+}
+
+enum ScanFormat {
+  SCAN_FORMAT_UNSPECIFIED = 0;
+  SCAN_FORMAT_ISO_19794_2 = 1;
+  SCAN_FORMAT_RAW_IMAGE = 2;
+}
