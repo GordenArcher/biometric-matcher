@@ -67,7 +67,7 @@ func (c *Client) Verify(ctx context.Context, probeScan, candidateTemplate []byte
 
 	req := &biometricpb.VerifyRequest{
 		ProbeScan:         probeScan,
-		Format:             biometricpb.ScanFormat_SCAN_FORMAT_ISO_19794_2,
+		Format:            biometricpb.ScanFormat_SCAN_FORMAT_ISO_19794_2,
 		CandidateTemplate: candidateTemplate,
 	}
 

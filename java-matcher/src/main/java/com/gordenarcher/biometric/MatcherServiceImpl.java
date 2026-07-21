@@ -2,6 +2,10 @@ package com.gordenarcher.biometric;
 
 import com.gordenarcher.biometric.grpc.*;
 import com.google.protobuf.ByteString;
+import com.machinezoo.sourceafis.FingerprintImage;
+import com.machinezoo.sourceafis.FingerprintImageOptions;
+import com.machinezoo.sourceafis.FingerprintMatcher;
+import com.machinezoo.sourceafis.FingerprintTemplate;
 import io.grpc.Status;
 import io.grpc.stub.StreamObserver;
 
@@ -14,37 +18,49 @@ import java.util.List;
  * what gets persisted and how it's encrypted, this class only ever sees
  * bytes it was handed in the current request and returns bytes/scores,
  * nothing here should ever need to survive past a single RPC call.
- *
- * TODO: the exact SourceAFIS 3.x API calls below (FingerprintImage,
- * FingerprintTemplate, FingerprintMatcher) are written from general
- * knowledge of the library's shape, not verified against the current
- * released version. Confirm constructor signatures and the matcher's
- * score scale against the SourceAFIS docs before relying on this.
  */
 public final class MatcherServiceImpl extends MatcherGrpc.MatcherImplBase {
 
-    // SourceAFIS scores are open ended, not 0-1 normalized. This threshold
-    // is a starting point, not a tuned value, revisit once there's real
-    // enrollment data to test false accept/reject rates against.
+    // Confirmed against SourceAFIS's own docs rather than guessed: their
+    // scale isn't 0-1, it's open ended, and they publish threshold 10 as
+    // roughly 10% false match rate, 20 as 1%, 30 as 0.1%. 40 is comfortably
+    // stricter than that, a reasonable starting point for something that
+    // gates a government ID reprint, but this should still be revisited
+    // once there's real enrollment data to test false accept/reject rates
+    // against, not treated as a tuned production value.
     private static final double DEFAULT_MATCH_THRESHOLD = 40.0;
+
+    // SourceAFIS documents 500 as the DPI its feature extractor is tuned
+    // against, this must match whatever the real sensor SDK actually
+    // outputs, a wrong DPI here silently degrades match quality rather
+    // than throwing an obvious error, worth double checking against
+    // whatever hardware this ends up wired to.
+    private static final int SCANNER_DPI = 500;
 
     @Override
     public void enroll(EnrollRequest request, StreamObserver<EnrollResponse> responseObserver) {
         try {
             byte[] scanBytes = request.getScanData().toByteArray();
 
-            // TODO: swap for the real SourceAFIS extraction call, this is
-            // a placeholder shape (image -> template -> serialized bytes).
-            // com.machinezoo.sourceafis.FingerprintTemplate template =
-            //     new com.machinezoo.sourceafis.FingerprintTemplate(
-            //         new com.machinezoo.sourceafis.FingerprintImage(scanBytes));
-            // byte[] templateBytes = template.toByteArray();
-            byte[] templateBytes = scanBytes; // placeholder until wired up
+            FingerprintImage image = new FingerprintImage(
+                    scanBytes,
+                    new FingerprintImageOptions().dpi(SCANNER_DPI));
+
+            // This is the expensive feature extraction step, SourceAFIS's
+            // own docs call this constructor out specifically as costly,
+            // it is why the serialized template gets cached by Go rather
+            // than re-derived from the raw scan on every verify.
+            FingerprintTemplate template = new FingerprintTemplate(image);
+            byte[] templateBytes = template.toByteArray();
 
             EnrollResponse response = EnrollResponse.newBuilder()
                     .setTemplate(ByteString.copyFrom(templateBytes))
-                    // TODO: pull the real quality score SourceAFIS reports
-                    // during extraction instead of hardcoding this.
+                    // SourceAFIS does not expose a documented standalone
+                    // quality score the way NFIQ2 does, so this is left
+                    // unset (0) rather than fabricating a number. If scan
+                    // quality gating turns out to matter in practice, an
+                    // NFIQ2 pass ahead of enrollment is the real fix, not
+                    // something to approximate here.
                     .setQualityScore(0f)
                     .build();
 
@@ -85,13 +101,29 @@ public final class MatcherServiceImpl extends MatcherGrpc.MatcherImplBase {
         try {
             byte[] probeBytes = request.getProbeScan().toByteArray();
 
+            FingerprintImage probeImage = new FingerprintImage(
+                    probeBytes,
+                    new FingerprintImageOptions().dpi(SCANNER_DPI));
+            FingerprintTemplate probeTemplate = new FingerprintTemplate(probeImage);
+
+            // Built once per request, then reused across every candidate.
+            // SourceAFIS's docs are explicit that the FingerprintMatcher
+            // constructor is the expensive part, precisely because it's
+            // built to be reused for many match() calls against one
+            // probe, rebuilding it per candidate would throw away the
+            // entire reason this class exists.
+            FingerprintMatcher matcher = new FingerprintMatcher(probeTemplate);
+
             List<IdentifyMatch> matches = new ArrayList<>();
-            // Linear scan over whatever batch Go sent. Fine for a demo,
-            // real scale needs SourceAFIS's own indexing/matcher pooling
-            // rather than scoring candidates one at a time in a loop, note
-            // this in the README rather than pretending this scales as is.
+            // Still a linear scan over whatever batch Go sent, that part
+            // of the scaling limit is real, real 1:N scale at population
+            // size needs binning/indexing on the candidate side (grouping
+            // by pattern type before this point), not something to solve
+            // inside this loop.
             for (TemplateCandidate candidate : request.getCandidatesList()) {
-                double score = scoreAgainst(probeBytes, candidate.getTemplate().toByteArray());
+                FingerprintTemplate candidateTemplate =
+                        new FingerprintTemplate(candidate.getTemplate().toByteArray());
+                double score = matcher.match(candidateTemplate);
                 if (score >= DEFAULT_MATCH_THRESHOLD) {
                     matches.add(IdentifyMatch.newBuilder()
                             .setCandidateId(candidate.getCandidateId())
@@ -117,13 +149,21 @@ public final class MatcherServiceImpl extends MatcherGrpc.MatcherImplBase {
     }
 
     private double scoreAgainst(byte[] probeBytes, byte[] candidateTemplateBytes) {
-        // TODO: real implementation, roughly:
-        // FingerprintTemplate probe =
-        //     new FingerprintTemplate(new FingerprintImage(probeBytes));
-        // FingerprintTemplate candidate =
-        //     FingerprintTemplate.deserialize(candidateTemplateBytes);
-        // return new FingerprintMatcher(probe).match(candidate);
-        throw new UnsupportedOperationException(
-                "wire up SourceAFIS matching before calling this, see TODO above");
+        FingerprintImage probeImage = new FingerprintImage(
+                probeBytes,
+                new FingerprintImageOptions().dpi(SCANNER_DPI));
+        FingerprintTemplate probe = new FingerprintTemplate(probeImage);
+
+        // The byte[] constructor deserializes the CBOR-encoded template
+        // Enroll() produced, this is what makes storing Enroll's output
+        // and feeding it back in later actually work, rather than needing
+        // the original raw scan again.
+        FingerprintTemplate candidate = new FingerprintTemplate(candidateTemplateBytes);
+
+        // Fine to build a fresh FingerprintMatcher per call here since
+        // Verify only ever compares against one candidate. Identify has
+        // its own matcher construction, built once per probe instead of
+        // once per candidate, since that path actually needs the reuse.
+        return new FingerprintMatcher(probe).match(candidate);
     }
 }

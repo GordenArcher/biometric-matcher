@@ -1,11 +1,11 @@
 services:
-  matcher:
-    build:
-      context: ./java-matcher
-    ports:
-      - "50051:50051"
-    environment:
-      # Matches the container's internal port, not the host mapping above,
-      # keeping these separate avoids confusion if the host port ever
-      # needs to change for local port conflicts.
-      MATCHER_PORT: "50051"
+    matcher:
+        build:
+            context: ./java-matcher
+        ports:
+            - "50051:50051"
+        environment:
+            # Matches the container's internal port, not the host mapping above,
+            # keeping these separate avoids confusion if the host port ever
+            # needs to change for local port conflicts.
+            MATCHER_PORT: "50051"

@@ -32,7 +32,7 @@ dependencies {
     // The actual matcher. Pin the version explicitly rather than a range,
     // a silent matcher algorithm change between versions is not something
     // you want happening on a routine `./gradlew build`.
-    implementation("com.machinezoo.sourceafis:sourceafis:3.16.1")
+    implementation("com.machinezoo.sourceafis:sourceafis:3.18.1")
 
     testImplementation(platform("org.junit:junit-bom:5.10.2"))
     testImplementation("org.junit.jupiter:junit-jupiter")
