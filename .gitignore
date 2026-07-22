@@ -12,5 +12,6 @@ go-client/biometric-cli
 # local test artifacts, never commit real scan/template data
 testdata/*.iso
 testdata/*.bin
+testdata/fvc2002-db1/
 
 .DS_Store

@@ -44,30 +44,83 @@ for the exact install commands if you don't have them.
 
 ### 2. Java matcher
 
+No `gradlew` is committed in this scaffold (generating one needs a real
+`gradle` install and network access to Gradle's distribution servers).
+Two options:
+
+**Docker (recommended, no local Gradle needed):**
+
+```
+docker-compose up --build
+```
+
+Builds against `gradle:8.9-jdk21` directly, see `java-matcher/Dockerfile`.
+
+**Local, if you have Gradle installed** (`brew install gradle` on macOS):
+
 ```
 cd java-matcher
-./gradlew run
+gradle run
 ```
 
-Add the SourceAFIS dependency in `build.gradle.kts` (already declared,
-just needs Maven Central reachable) before this will actually compile.
-`MatcherServiceImpl.java` has the enroll/verify/identify wiring stubbed
-with TODOs at the exact lines where SourceAFIS calls go, since the exact
-API surface is worth double checking against current SourceAFIS docs
-rather than trusting this from memory.
+The first time you do this, it's worth running `gradle wrapper` too and
+committing the result (`gradlew`, `gradlew.bat`, `gradle/wrapper/`), so
+nobody else on this repo needs Gradle installed locally either.
 
-### 3. Go CLI
+Either way, `MatcherServiceImpl.java` has real enroll/verify/identify
+logic wired to SourceAFIS, not stubs, see the comments there for the
+reasoning behind the match threshold and DPI constant.
+
+### 3. Get some real fingerprint data to test with
+
+```
+chmod +x scripts/fetch-testdata.sh
+./scripts/fetch-testdata.sh
+```
+
+The executable bit doesn't always survive a copy/paste or a zip extract,
+so `chmod +x` first if you get a "permission denied".
+
+Pulls FVC2002 DB1_B, the dataset SourceAFIS's own tutorial recommends for
+trying it out. See `testdata/README.md` for match/non-match test pairs.
+
+### 4. Go CLI
 
 ```
 cd go-client
-go run ./cmd/biometric-cli enroll --scan ./testdata/sample.iso --out ./testdata/template.bin
-go run ./cmd/biometric-cli verify --scan ./testdata/sample.iso --template ./testdata/template.bin
+go run ./cmd/biometric-cli enroll --scan ../testdata/fvc2002-db1/101_1.tif --out ../testdata/template-101.bin
+go run ./cmd/biometric-cli verify --scan ../testdata/fvc2002-db1/101_2.tif --template ../testdata/template-101.bin
 ```
+
+## Verified working
+
+Tested end to end against real FVC2002 DB1_B fingerprint scans, full
+round trip through the Go CLI, gRPC, and the Java/SourceAFIS matcher:
+
+```
+$ go run ./cmd/biometric-cli enroll --scan ../testdata/fvc2002-db1/101_1.tif --out ../testdata/template-101.bin
+enrolled, quality score 0.00, template written to ../testdata/template-101.bin
+
+$ go run ./cmd/biometric-cli verify --scan ../testdata/fvc2002-db1/101_2.tif --template ../testdata/template-101.bin
+match: true, score: 116.98
+
+$ go run ./cmd/biometric-cli verify --scan ../testdata/fvc2002-db1/102_1.tif --template ../testdata/template-101.bin
+match: false, score: 4.38
+```
+
+![Verified working demo](docs/verify-demo.jpeg)
+
+Same finger, different impression, scores 116.98, well past the 40.0
+threshold. A genuinely different finger scores 4.38, nowhere close.
+Quality score reads 0.00 as expected, see the note in
+`MatcherServiceImpl.java` on why that field is intentionally unset.
 
 ## What's deliberately not built yet
 
-- Template encryption at rest (planned to live in `go-client/internal/client`,
-  see TODO there)
+- Template encryption at rest, nothing implemented yet, `client.go`'s
+  comments note that `internal/client` is where it should live once
+  built, but there's no TODO marker or stub there, this is a genuine
+  gap, not a started piece
 - Postgres schema for the register (biographic table + encrypted template
   table, kept separate on purpose)
 - Liveness detection, this is a hardware/firmware concern, not something

@@ -1,9 +1,12 @@
-# Multi-stage build, the Gradle wrapper and full JDK are only needed to
-# produce the jar, the runtime image should just be a JRE running it.
-FROM eclipse-temurin:21-jdk AS build
+# Multi-stage build. Uses Gradle's own image rather than a wrapper script,
+# there's no gradlew committed here (generating one needs a real gradle
+# binary and network access to Gradle's distribution servers, neither
+# available in the environment this scaffold was built in), this avoids
+# that dependency entirely for the Docker path.
+FROM gradle:8.9-jdk21 AS build
 WORKDIR /app
 COPY . .
-RUN ./gradlew installDist --no-daemon
+RUN gradle installDist --no-daemon
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app
