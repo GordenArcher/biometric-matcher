@@ -14,4 +14,8 @@ testdata/*.iso
 testdata/*.bin
 testdata/fvc2002-db1/
 
+# never commit the encryption key or a real connection string
+.env
+*.env
+
 .DS_Store

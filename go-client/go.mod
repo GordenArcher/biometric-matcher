@@ -1,8 +1,10 @@
 module github.com/GordenArcher/biometric-matcher
 
-go 1.22
+go 1.25.1
 
 require (
+	github.com/GordenArcher/godenv v1.0.0
+	github.com/lib/pq v1.12.3
 	google.golang.org/grpc v1.65.0
 	google.golang.org/protobuf v1.34.2
 )

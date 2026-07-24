@@ -88,9 +88,65 @@ trying it out. See `testdata/README.md` for match/non-match test pairs.
 
 ```
 cd go-client
+go mod tidy
 go run ./cmd/biometric-cli enroll --scan ../testdata/fvc2002-db1/101_1.tif --out ../testdata/template-101.bin
 go run ./cmd/biometric-cli verify --scan ../testdata/fvc2002-db1/101_2.tif --template ../testdata/template-101.bin
 ```
+
+`enroll`/`verify` above are for testing the matcher directly against raw
+scan data, no database involved, templates just get written to local
+files. `register`/`verify-person` below are the real path.
+
+### 5. Real registration path (encryption + Postgres)
+
+Postgres runs via the `postgres` service in `docker-compose.yml`
+(`docker-compose up` brings both it and the matcher up together), schema
+in `go-client/migrations/0001_init.sql` applies automatically on first
+start via Postgres's `docker-entrypoint-initdb.d` convention.
+
+Generate a real AES-256 key (32 random bytes, base64 encoded), then either
+export it and `DATABASE_URL` directly, or copy `go-client/.env.example` to
+`go-client/.env` and fill it in, the CLI loads `.env` automatically via
+[godenv](https://github.com/GordenArcher/godenv):
+
+```
+cp go-client/.env.example go-client/.env
+# edit go-client/.env, set TEMPLATE_ENCRYPTION_KEY=$(openssl rand -base64 32)
+```
+
+or without a `.env` file:
+
+```
+export TEMPLATE_ENCRYPTION_KEY=$(openssl rand -base64 32)
+export DATABASE_URL="postgres://biometric:biometric_dev_only@localhost:5432/biometric?sslmode=disable"
+```
+
+Then:
+
+```
+cd go-client
+
+go run ./cmd/biometric-cli register \
+  --scan ../testdata/fvc2002-db1/101_1.tif \
+  --name "Gorden Archer" \
+  --dob 2000-01-01
+
+go run ./cmd/biometric-cli verify-person \
+  --scan ../testdata/fvc2002-db1/101_2.tif \
+  --person <the person ID register printed>
+```
+
+`register` calls the matcher's `Enroll`, encrypts the resulting template,
+and writes both the biographic row and the encrypted template in one
+transaction. `verify-person` pulls the stored ciphertext, decrypts it in
+Go, and only then sends plaintext to the matcher over gRPC, the matcher
+never sees ciphertext or knows storage exists at all.
+
+The encryption key itself comes from `internal/crypto.KeyProvider`, an
+interface rather than a direct env var read. `EnvKeyProvider` is the only
+implementation right now, swapping in a real KMS later is a new
+implementation of that interface, not a rewrite of the encryption code
+in `internal/crypto/template.go`.
 
 ## Verified working
 
@@ -108,8 +164,6 @@ $ go run ./cmd/biometric-cli verify --scan ../testdata/fvc2002-db1/102_1.tif --t
 match: false, score: 4.38
 ```
 
-![Verified working demo](docs/verify-demo.jpeg)
-
 Same finger, different impression, scores 116.98, well past the 40.0
 threshold. A genuinely different finger scores 4.38, nowhere close.
 Quality score reads 0.00 as expected, see the note in
@@ -117,13 +171,14 @@ Quality score reads 0.00 as expected, see the note in
 
 ## What's deliberately not built yet
 
-- Template encryption at rest, nothing implemented yet, `client.go`'s
-  comments note that `internal/client` is where it should live once
-  built, but there's no TODO marker or stub there, this is a genuine
-  gap, not a started piece
-- Postgres schema for the register (biographic table + encrypted template
-  table, kept separate on purpose)
 - Liveness detection, this is a hardware/firmware concern, not something
   this service layer can meaningfully fake without real sensor SDK access
 - Auth between go-client and java-matcher, fine on localhost during
   development, not fine before this goes anywhere near a real network
+- A real KMS-backed `KeyProvider`, `EnvKeyProvider` is fine for local
+  dev, the interface is designed so replacing it doesn't touch
+  `internal/crypto/template.go`, but the replacement itself isn't written
+- Re-identifying an existing person against `ListTemplates` (the
+  `identify` gRPC path and `Store.ListTemplates` both exist, nothing in
+  the CLI wires them together yet the way `register`/`verify-person` do
+  for the 1:1 path)

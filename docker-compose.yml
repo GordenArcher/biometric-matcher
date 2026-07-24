@@ -9,3 +9,23 @@ services:
             # keeping these separate avoids confusion if the host port ever
             # needs to change for local port conflicts.
             MATCHER_PORT: "50051"
+
+    postgres:
+        image: postgres:16
+        ports:
+            - "5432:5432"
+        environment:
+            # Dev-only credentials, this is why they're inline here rather than
+            # in a .env file someone might reuse. Real credentials belong in a
+            # secrets manager, never in a committed compose file.
+            POSTGRES_USER: biometric
+            POSTGRES_PASSWORD: biometric_dev_only
+            POSTGRES_DB: biometric
+        volumes:
+            - pgdata:/var/lib/postgresql/data
+            # Runs once, only on an empty data directory, on every subsequent
+            # `docker-compose up` this is a no-op, not a re-run migration.
+            - ./go-client/migrations:/docker-entrypoint-initdb.d
+
+volumes:
+    pgdata:
