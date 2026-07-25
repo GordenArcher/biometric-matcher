@@ -118,7 +118,7 @@ or without a `.env` file:
 
 ```
 export TEMPLATE_ENCRYPTION_KEY=$(openssl rand -base64 32)
-export DATABASE_URL="postgres://biometric:biometric_dev_only@localhost:5432/biometric?sslmode=disable"
+export DATABASE_URL="postgres://biometric:biometric_dev_only@localhost:5433/biometric?sslmode=disable"
 ```
 
 Then:
@@ -141,6 +141,18 @@ and writes both the biographic row and the encrypted template in one
 transaction. `verify-person` pulls the stored ciphertext, decrypts it in
 Go, and only then sends plaintext to the matcher over gRPC, the matcher
 never sees ciphertext or knows storage exists at all.
+
+For a 1:N search against everyone registered so far:
+
+```
+go run ./cmd/biometric-cli identify-person --scan ../testdata/fvc2002-db1/101_2.tif
+```
+
+`identify-person` pages through `Store.ListTemplates` (Go's job per the
+proto contract, the matcher never sees "the whole register"), decrypts
+each row, and hands the matcher a plaintext candidate batch. `-limit`
+and `-offset` control the page size if the register grows past a
+comfortable single batch.
 
 The encryption key itself comes from `internal/crypto.KeyProvider`, an
 interface rather than a direct env var read. `EnvKeyProvider` is the only
@@ -178,7 +190,3 @@ Quality score reads 0.00 as expected, see the note in
 - A real KMS-backed `KeyProvider`, `EnvKeyProvider` is fine for local
   dev, the interface is designed so replacing it doesn't touch
   `internal/crypto/template.go`, but the replacement itself isn't written
-- Re-identifying an existing person against `ListTemplates` (the
-  `identify` gRPC path and `Store.ListTemplates` both exist, nothing in
-  the CLI wires them together yet the way `register`/`verify-person` do
-  for the 1:1 path)

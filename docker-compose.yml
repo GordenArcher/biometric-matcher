@@ -13,7 +13,10 @@ services:
     postgres:
         image: postgres:16
         ports:
-            - "5432:5432"
+            # 5433 on the host, not 5432, a locally installed Postgres is a
+            # common thing to already have running and bound to 5432, this
+            # avoids that collision instead of assuming the port is free.
+            - "5433:5432"
         environment:
             # Dev-only credentials, this is why they're inline here rather than
             # in a .env file someone might reuse. Real credentials belong in a

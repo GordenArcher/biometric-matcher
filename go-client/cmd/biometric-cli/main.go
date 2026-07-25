@@ -10,7 +10,7 @@ import (
 )
 
 // Manual subcommand routing instead of a CLI framework dependency, this
-// tool only has five commands and isn't likely to grow flag complexity
+// tool only has six commands and isn't likely to grow flag complexity
 // that would justify pulling in something like cobra.
 func main() {
 	// Ignored deliberately, not required is a valid state, register and
@@ -36,6 +36,8 @@ func main() {
 		err = commands.RunRegister(os.Args[2:])
 	case "verify-person":
 		err = commands.RunVerifyPerson(os.Args[2:])
+	case "identify-person":
+		err = commands.RunIdentifyPerson(os.Args[2:])
 	default:
 		printUsage()
 		os.Exit(1)
@@ -48,5 +50,5 @@ func main() {
 }
 
 func printUsage() {
-	fmt.Println("usage: biometric-cli <enroll|verify|identify|register|verify-person> [flags]")
+	fmt.Println("usage: biometric-cli <enroll|verify|identify|register|verify-person|identify-person> [flags]")
 }
