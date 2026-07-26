@@ -42,7 +42,18 @@ and lets Gradle's protobuf plugin handle Java codegen automatically on
 build. Requires `protoc` and the Go gRPC plugins locally, see the Makefile
 for the exact install commands if you don't have them.
 
-### 2. Java matcher
+### 2. Generate TLS certs
+
+```
+chmod +x scripts/gen-certs.sh
+./scripts/gen-certs.sh
+```
+
+The matcher requires mutual TLS, no plaintext fallback, it will refuse
+to start without these. See `certs/` output for what gets generated,
+none of it is committed, regenerate any time.
+
+### 3. Java matcher
 
 No `gradlew` is committed in this scaffold (generating one needs a real
 `gradle` install and network access to Gradle's distribution servers).
@@ -55,11 +66,17 @@ docker-compose up --build
 ```
 
 Builds against `gradle:8.9-jdk21` directly, see `java-matcher/Dockerfile`.
+The compose file mounts `./certs` into the container and points
+`MATCHER_TLS_CERT`/`MATCHER_TLS_KEY`/`MATCHER_TLS_CLIENT_CA` at the
+right files, run step 2 first or this container won't start.
 
 **Local, if you have Gradle installed** (`brew install gradle` on macOS):
 
 ```
 cd java-matcher
+MATCHER_TLS_CERT=../certs/server-cert.pem \
+MATCHER_TLS_KEY=../certs/server-key.pem \
+MATCHER_TLS_CLIENT_CA=../certs/ca-cert.pem \
 gradle run
 ```
 
@@ -71,7 +88,7 @@ Either way, `MatcherServiceImpl.java` has real enroll/verify/identify
 logic wired to SourceAFIS, not stubs, see the comments there for the
 reasoning behind the match threshold and DPI constant.
 
-### 3. Get some real fingerprint data to test with
+### 4. Get some real fingerprint data to test with
 
 ```
 chmod +x scripts/fetch-testdata.sh
@@ -84,7 +101,18 @@ so `chmod +x` first if you get a "permission denied".
 Pulls FVC2002 DB1_B, the dataset SourceAFIS's own tutorial recommends for
 trying it out. See `testdata/README.md` for match/non-match test pairs.
 
-### 4. Go CLI
+### 5. Go CLI
+
+The CLI needs its own TLS material to talk to the matcher, either copy
+`go-client/.env.example` to `go-client/.env` and fill in the three
+`MATCHER_*` paths (already pointed at `../certs/...` by default, matching
+step 2's output), or export them directly:
+
+```
+export MATCHER_CLIENT_CERT_FILE=../certs/client-cert.pem
+export MATCHER_CLIENT_KEY_FILE=../certs/client-key.pem
+export MATCHER_CA_FILE=../certs/ca-cert.pem
+```
 
 ```
 cd go-client
@@ -97,7 +125,7 @@ go run ./cmd/biometric-cli verify --scan ../testdata/fvc2002-db1/101_2.tif --tem
 scan data, no database involved, templates just get written to local
 files. `register`/`verify-person` below are the real path.
 
-### 5. Real registration path (encryption + Postgres)
+### 6. Real registration path (encryption + Postgres)
 
 Postgres runs via the `postgres` service in `docker-compose.yml`
 (`docker-compose up` brings both it and the matcher up together), schema
@@ -185,8 +213,10 @@ Quality score reads 0.00 as expected, see the note in
 
 - Liveness detection, this is a hardware/firmware concern, not something
   this service layer can meaningfully fake without real sensor SDK access
-- Auth between go-client and java-matcher, fine on localhost during
-  development, not fine before this goes anywhere near a real network
 - A real KMS-backed `KeyProvider`, `EnvKeyProvider` is fine for local
   dev, the interface is designed so replacing it doesn't touch
   `internal/crypto/template.go`, but the replacement itself isn't written
+- Cert rotation and revocation, `scripts/gen-certs.sh` produces certs
+  valid for 825 days with no revocation mechanism, fine for a dev CA
+  both sides regenerate together, not something to reuse as-is anywhere
+  certs might need to be revoked independently
