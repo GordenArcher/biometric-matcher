@@ -118,7 +118,7 @@ or without a `.env` file:
 
 ```
 export TEMPLATE_ENCRYPTION_KEY=$(openssl rand -base64 32)
-export DATABASE_URL="postgres://biometric:biometric_dev_only@localhost:5433/biometric?sslmode=disable"
+export DATABASE_URL="postgres://biometric:biometric_dev_only@localhost:5544/biometric?sslmode=disable"
 ```
 
 Then:

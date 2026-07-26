@@ -43,7 +43,11 @@ func (c *Client) Close() error {
 // caller's job (internal/commands), not this client's, keeps this layer
 // a thin transport wrapper rather than mixing in storage concerns.
 func (c *Client) Enroll(ctx context.Context, scanData []byte) (*biometricpb.EnrollResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	// 30s rather than a tighter number, the first call to a freshly
+	// started matcher container pays JVM warmup and SourceAFIS class
+	// loading cost that a warm container never does again, a 10s budget
+	// here failed exactly that way in practice.
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	req := &biometricpb.EnrollRequest{
@@ -62,7 +66,7 @@ func (c *Client) Enroll(ctx context.Context, scanData []byte) (*biometricpb.Enro
 // template. Decryption of the stored template happens before this is
 // called, the matcher never sees ciphertext.
 func (c *Client) Verify(ctx context.Context, probeScan, candidateTemplate []byte) (*biometricpb.VerifyResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	req := &biometricpb.VerifyRequest{
