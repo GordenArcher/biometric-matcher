@@ -14,6 +14,7 @@ import io.grpc.netty.shaded.io.netty.handler.ssl.SslContext;
 
 import java.io.File;
 import java.io.IOException;
+import java.security.GeneralSecurityException;
 
 public final class MatcherServer {
 
@@ -49,14 +50,22 @@ public final class MatcherServer {
         File certChain = requireFile("MATCHER_TLS_CERT");
         File privateKey = requireFile("MATCHER_TLS_KEY");
         File clientCa = requireFile("MATCHER_TLS_CLIENT_CA");
+        File revokedSerials = requireFile("MATCHER_TLS_REVOKED_SERIALS");
 
-        return GrpcSslContexts.forServer(certChain, privateKey)
-                // REQUIRE, not OPTIONAL, an unauthenticated go-client
-                // should not be able to reach Enroll/Verify/Identify at
-                // all, not just be treated as untrusted once connected.
-                .clientAuth(ClientAuth.REQUIRE)
-                .trustManager(clientCa)
-                .build();
+        try {
+            RevocationCheckingTrustManager trustManager =
+                    RevocationCheckingTrustManager.create(clientCa, revokedSerials);
+
+            return GrpcSslContexts.forServer(certChain, privateKey)
+                    // REQUIRE, not OPTIONAL, an unauthenticated go-client
+                    // should not be able to reach Enroll/Verify/Identify at
+                    // all, not just be treated as untrusted once connected.
+                    .clientAuth(ClientAuth.REQUIRE)
+                    .trustManager(trustManager)
+                    .build();
+        } catch (GeneralSecurityException e) {
+            throw new IOException("failed to build revocation-checking trust manager", e);
+        }
     }
 
     private static File requireFile(String envVar) {
