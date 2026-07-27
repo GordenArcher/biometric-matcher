@@ -16,6 +16,39 @@ re-benchmarked (e.g. against NIST NBIS) without touching how identities
 are stored or exposed. See `proto/biometric.proto` for the full contract
 and the reasoning behind each RPC.
 
+## Architecture
+
+<div align="center">
+  <p>
+    High-level architecture of the biometric verification system,
+    showing the Go client, secure mTLS gRPC communication,
+    Java matching service, encryption layer, and PostgreSQL storage.
+  </p>
+
+  <br />
+
+<img
+    src="docs/architecture.png"
+    alt="System architecture diagram"
+    width="900"
+/>
+
+  <br />
+  <br />
+
+  <sub>
+    Data is encrypted using AES-256-GCM before being persisted.
+    Communication between services is secured with mutual TLS (mTLS).
+  </sub>
+
+</div>
+
+Plaintext templates only ever exist in three places: inside the matcher
+during a call, in transit over the mTLS connection, and briefly in Go
+memory right before encryption or right after decryption. Postgres only
+ever stores ciphertext, and the matcher never touches a database or
+biographic data at all.
+
 ## Layout
 
 ```
@@ -210,6 +243,8 @@ Same finger, different impression, scores 116.98, well past the 40.0
 threshold. A genuinely different finger scores 4.38, nowhere close.
 Quality score reads 0.00 as expected, see the note in
 `MatcherServiceImpl.java` on why that field is intentionally unset.
+
+![Verified working demo](docs/verify-demo.jpeg)
 
 ## Cert rotation and revocation
 
