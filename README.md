@@ -77,6 +77,7 @@ cd java-matcher
 MATCHER_TLS_CERT=../certs/server-cert.pem \
 MATCHER_TLS_KEY=../certs/server-key.pem \
 MATCHER_TLS_CLIENT_CA=../certs/ca-cert.pem \
+MATCHER_TLS_REVOKED_SERIALS=../certs/revoked-serials.txt \
 gradle run
 ```
 
@@ -104,7 +105,7 @@ trying it out. See `testdata/README.md` for match/non-match test pairs.
 ### 5. Go CLI
 
 The CLI needs its own TLS material to talk to the matcher, either copy
-`go-client/.env.example` to `go-client/.env` and fill in the three
+`go-client/.env.example` to `go-client/.env` and fill in the four
 `MATCHER_*` paths (already pointed at `../certs/...` by default, matching
 step 2's output), or export them directly:
 
@@ -112,6 +113,7 @@ step 2's output), or export them directly:
 export MATCHER_CLIENT_CERT_FILE=../certs/client-cert.pem
 export MATCHER_CLIENT_KEY_FILE=../certs/client-key.pem
 export MATCHER_CA_FILE=../certs/ca-cert.pem
+export MATCHER_REVOKED_SERIALS_FILE=../certs/revoked-serials.txt
 ```
 
 ```
@@ -209,6 +211,67 @@ threshold. A genuinely different finger scores 4.38, nowhere close.
 Quality score reads 0.00 as expected, see the note in
 `MatcherServiceImpl.java` on why that field is intentionally unset.
 
+## Cert rotation and revocation
+
+`scripts/gen-certs.sh` produces one dev CA plus a server and client leaf
+cert. Day-to-day, only the leaf certs need to change:
+
+```
+./scripts/rotate-certs.sh
+```
+
+Keeps the existing CA, issues fresh server/client certs signed by it, so
+neither side needs to re-trust anything new. The old certs are backed up
+to `certs/*.pem.old` before being overwritten, restart both the matcher
+and any running CLI process to pick up the new certs.
+
+If a cert may have been compromised, revoke it by serial rather than
+waiting for it to expire:
+
+```
+./scripts/revoke-cert.sh certs/client-cert.pem.old
+```
+
+Both `RevocationCheckingTrustManager.java` (matcher side) and
+`internal/client/revocation.go` (Go side) re-read
+`certs/revoked-serials.txt` on every handshake, so a revocation takes
+effect on the very next connection, no restart needed. This is a flat
+file, not a real X.509 CRL or OCSP responder, deliberately, see the
+comment in `scripts/revoke-cert.sh` for why that's the right amount of
+machinery for two services sharing one CA rather than a real
+distribution problem.
+
+## Running the tests
+
+Go, from `go-client`:
+
+```
+go test ./...
+```
+
+Covers `internal/crypto`'s `Encryptor` (round trip, wrong key, tampered
+ciphertext, short input) and `EnvKeyProvider` (missing/invalid/valid env
+var). No test touches Postgres or the matcher directly, those are
+integration-shaped and covered by the "Verified working" run above
+instead.
+
+Java, from `java-matcher`:
+
+```
+gradle test
+```
+
+or via Docker if you don't have Gradle locally:
+
+```
+docker run --rm -v "$(pwd)":/app -w /app gradle:8.9-jdk21 gradle test --no-daemon
+```
+
+`MatcherServiceImplTest` runs real enroll/verify/identify calls against
+FVC2002 DB1_B (same/different finger matching, and a 3-candidate
+`identify` search), skipped automatically if `scripts/fetch-testdata.sh`
+hasn't been run yet rather than failing.
+
 ## What's deliberately not built yet
 
 - Liveness detection, this is a hardware/firmware concern, not something
@@ -216,7 +279,3 @@ Quality score reads 0.00 as expected, see the note in
 - A real KMS-backed `KeyProvider`, `EnvKeyProvider` is fine for local
   dev, the interface is designed so replacing it doesn't touch
   `internal/crypto/template.go`, but the replacement itself isn't written
-- Cert rotation and revocation, `scripts/gen-certs.sh` produces certs
-  valid for 825 days with no revocation mechanism, fine for a dev CA
-  both sides regenerate together, not something to reuse as-is anywhere
-  certs might need to be revoked independently

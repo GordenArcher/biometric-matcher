@@ -12,6 +12,7 @@ services:
             MATCHER_TLS_CERT: /certs/server-cert.pem
             MATCHER_TLS_KEY: /certs/server-key.pem
             MATCHER_TLS_CLIENT_CA: /certs/ca-cert.pem
+            MATCHER_TLS_REVOKED_SERIALS: /certs/revoked-serials.txt
         volumes:
             # Read-only, the container only ever needs to present its own
             # cert and verify client certs against the CA, never write here.

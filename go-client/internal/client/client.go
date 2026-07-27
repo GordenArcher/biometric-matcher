@@ -49,16 +49,17 @@ func New(target string) (*Client, error) {
 // loadTLSCredentials builds a client-side TLS config presenting our own
 // cert (so the matcher's mTLS clientAuth REQUIRE is satisfied) and
 // trusting the shared dev CA (so we verify the matcher isn't an
-// impostor). All three paths come from env/.env via godenv, generated
-// locally with scripts/gen-certs.sh, never committed.
+// impostor). All paths come from env/.env via godenv, generated locally
+// with scripts/gen-certs.sh, never committed.
 func loadTLSCredentials() (credentials.TransportCredentials, error) {
 	certFile := godenv.Get("MATCHER_CLIENT_CERT_FILE", "")
 	keyFile := godenv.Get("MATCHER_CLIENT_KEY_FILE", "")
 	caFile := godenv.Get("MATCHER_CA_FILE", "")
+	revokedFile := godenv.Get("MATCHER_REVOKED_SERIALS_FILE", "")
 
-	if certFile == "" || keyFile == "" || caFile == "" {
+	if certFile == "" || keyFile == "" || caFile == "" || revokedFile == "" {
 		return nil, fmt.Errorf(
-			"MATCHER_CLIENT_CERT_FILE, MATCHER_CLIENT_KEY_FILE, and MATCHER_CA_FILE must all be set, run scripts/gen-certs.sh if certs don't exist yet")
+			"MATCHER_CLIENT_CERT_FILE, MATCHER_CLIENT_KEY_FILE, MATCHER_CA_FILE, and MATCHER_REVOKED_SERIALS_FILE must all be set, run scripts/gen-certs.sh if certs don't exist yet")
 	}
 
 	clientCert, err := tls.LoadX509KeyPair(certFile, keyFile)
@@ -83,6 +84,28 @@ func loadTLSCredentials() (credentials.TransportCredentials, error) {
 		// generates (localhost, matcher, 127.0.0.1), not just be "the
 		// hostname", TLS verification checks this literally.
 		ServerName: "localhost",
+		// go's tls package already ran normal chain verification against
+		// RootCAs before calling this, InsecureSkipVerify defaults to
+		// false, this callback only adds the extra revocation check on
+		// top, it isn't standing in for certificate validation itself.
+		VerifyPeerCertificate: func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+			if len(verifiedChains) == 0 || len(verifiedChains[0]) == 0 {
+				return fmt.Errorf("no verified chain to check for revocation")
+			}
+
+			revoked, err := loadRevokedSerials(revokedFile)
+			if err != nil {
+				// Fail closed, mirrors RevocationCheckingTrustManager on
+				// the Java side, "can't check" must not mean "assume ok".
+				return fmt.Errorf("check revocation: %w", err)
+			}
+
+			leaf := verifiedChains[0][0]
+			if _, isRevoked := revoked[certSerialHex(leaf)]; isRevoked {
+				return fmt.Errorf("matcher's certificate (serial %s) has been revoked", certSerialHex(leaf))
+			}
+			return nil
+		},
 	}), nil
 }
 

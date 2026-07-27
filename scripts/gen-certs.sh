@@ -37,10 +37,16 @@ openssl x509 -req -in client-csr.pem -CA ca-cert.pem -CAkey ca-key.pem \
 
 rm -f server-csr.pem client-csr.pem ca-cert.srl
 
+# Empty, not missing, both sides treat a missing file as an error rather
+# than "nothing is revoked", this makes that the explicit starting state
+# instead of relying on scripts/revoke-cert.sh to create it later.
+touch revoked-serials.txt
+
 echo "Done. Certs written to $CERT_DIR:"
 echo "  ca-cert.pem      - trust root for both sides"
 echo "  server-*.pem     - matcher's cert/key, mount into the matcher container"
 echo "  client-*.pem     - go-client's cert/key, used by the CLI"
+echo "  revoked-serials.txt - empty for now, see scripts/revoke-cert.sh"
 echo
 echo "None of these are committed, see .gitignore. Regenerate any time"
 echo "with this script, both sides just need to agree on the same CA."
