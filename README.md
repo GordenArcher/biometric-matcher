@@ -230,7 +230,7 @@ round trip through the Go CLI, gRPC, and the Java/SourceAFIS matcher:
 
 ```
 $ go run ./cmd/biometric-cli enroll --scan ../testdata/fvc2002-db1/101_1.tif --out ../testdata/template-101.bin
-enrolled, quality score 0.00, template written to ../testdata/template-101.bin
+enrolled, template written to ../testdata/template-101.bin
 
 $ go run ./cmd/biometric-cli verify --scan ../testdata/fvc2002-db1/101_2.tif --template ../testdata/template-101.bin
 match: true, score: 116.98
@@ -241,8 +241,9 @@ match: false, score: 4.38
 
 Same finger, different impression, scores 116.98, well past the 40.0
 threshold. A genuinely different finger scores 4.38, nowhere close.
-Quality score reads 0.00 as expected, see the note in
-`MatcherServiceImpl.java` on why that field is intentionally unset.
+The enrollment response keeps a reserved `quality_score` field, but the
+current SourceAFIS-backed matcher does not calculate a standalone quality
+score, so the CLI does not display it.
 
 ![Verified working demo](docs/verify-demo.jpeg)
 

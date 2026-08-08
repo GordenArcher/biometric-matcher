@@ -49,6 +49,6 @@ func RunEnroll(args []string) error {
 		return fmt.Errorf("write template file: %w", err)
 	}
 
-	fmt.Printf("enrolled, quality score %.2f, template written to %s\n", resp.GetQualityScore(), *outPath)
+	fmt.Printf("enrolled, template written to %s\n", *outPath)
 	return nil
 }

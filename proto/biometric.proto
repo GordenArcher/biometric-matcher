@@ -41,9 +41,9 @@ message EnrollResponse {
   // touches the database, the matcher does not know or care about that.
   bytes template = 1;
 
-  // SourceAFIS reports this so Go can reject unusably low quality
-  // scans at enrollment time instead of discovering it later during
-  // a failed verify.
+  // Reserved for a future scan-quality check. The current SourceAFIS-backed
+  // matcher does not calculate a standalone enrollment quality score, so it
+  // returns 0 for now instead of pretending the value is meaningful.
   float quality_score = 2;
 }
 
